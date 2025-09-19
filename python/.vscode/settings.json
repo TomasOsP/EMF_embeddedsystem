@@ -1,0 +1,16 @@
+{
+    "python.defaultInterpreterPath": "python-visualization/venv/bin/python",
+    "python.analysis.extraPaths": ["./python-visualization"],
+    "files.exclude": {
+        "**/__pycache__": true,
+        "**/*.pyc": true,
+        "venv/": true
+    },
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.autopep8",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+            "source.organizeImports": true
+        }
+    }
+}
