@@ -10,10 +10,15 @@
 
 Adafruit_MLX90393 mlx = Adafruit_MLX90393();
 
-float offsetX = 0.0;  // Ajusta estos offsets midiendo en campo cero
+// --- Calibración simple (offsets) ---
+float offsetX = 0.0;  
 float offsetY = 0.0;
 float offsetZ = 0.0;
 
+// --- Cola global para enviar los datos ---
+QueueHandle_t sensorQueue;
+
+// Inicializa el sensor MLX90393 con configuración óptima
 void initSensor() {
 
   if (!mlx.begin_I2C()) {
@@ -30,28 +35,44 @@ void initSensor() {
   mlx.setOversampling(MLX90393_OSR_1); // Máximo sobremuestreo (reduce ruido, aumenta tiempo)
   mlx.setFilter(MLX90393_FILTER_1);    // Máximo filtro (reduce ruido, ODR ~5 Hz)
 
-  // Para AC rápida: Comenta arriba y usa:
-  // mlx.setOversampling(MLX90393_OSR_1);
-  // mlx.setFilter(MLX90393_FILTER_1);  // ODR >700 Hz
-
-  // Modo Burst para monitoreo continuo (opcional, ajusta intervalo)
-  // mlx.startBurstMode(MLX90393_X | MLX90393_Y | MLX90393_Z | MLX90393_TEMP);
-
+  sensorQueue = xQueueCreate(10, sizeof(Vector3));
+  if (sensorQueue == NULL) {
+    Serial.println("Error creando la cola.");
+    while (1);
+  }
 }
-
+// ---------------------------------------------------------
+// Lectura de datos del sensor (una sola muestra)
+// ---------------------------------------------------------
 Vector3 getMagneticField() {
   float x, y, z;  // En µT
   Vector3 campo = {0.0, 0.0, 0.0};
 
   if (mlx.readData(&x, &y, &z)) {
     // Aplica calibración simple
-    x -= offsetX;
-    y -= offsetY;
-    z -= offsetZ;
-    campo = {x, y, z};
+    campo.x = x - offsetX;
+    campo.y = y - offsetY;
+    campo.z = z - offsetZ;
   } else {
     Serial.println("Error en lectura del sensor.");
   }
 
   return campo;
+}
+
+// ---------------------------------------------------------
+// Tarea FreeRTOS: lectura periódica del sensor
+// ---------------------------------------------------------
+void TaskSensor(void *pvParameters) {
+  Vector3 campo;
+
+  for (;;) {
+    campo = getMagneticField();
+
+    // Envía los datos a la cola (no bloqueante)
+    xQueueSend(sensorQueue, &campo, 0);
+
+    // Tiempo de muestreo (ajústalo según tu frecuencia deseada)
+    vTaskDelay(pdMS_TO_TICKS(5));  // 5 ms → 200 Hz
+  }
 }
