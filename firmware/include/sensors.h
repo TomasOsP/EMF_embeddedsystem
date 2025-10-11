@@ -1,0 +1,10 @@
+#pragma once
+
+struct Vector3 {
+  float x;
+  float y;
+  float z;
+};
+
+void initSensor();
+Vector3 getMagneticField();

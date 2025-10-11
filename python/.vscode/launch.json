@@ -3,7 +3,7 @@
     "configurations": [
         {
             "name": "Python: Magnetic Visualizer",
-            "type": "python",
+            "type": "debugpy",
             "request": "launch",
             "program": "python-visualization/magnetic_visualizer.py",
             "console": "integratedTerminal",
