@@ -88,7 +88,7 @@ void TaskSensor(void *pvParameters) {
     //   Serial.println("Warning: colas llenas, datos perdidos.");
     // }
     xQueueOverwrite(display_queue, &campo);
-
+    xQueueSend(analysis_queue, &campo, 0);
     // Calcular tiempo entre muestras
     currentSampleTime = micros();
     deltaTime = currentSampleTime - lastSampleTime;

@@ -1,64 +1,107 @@
 #include <Arduino.h>
 #include "data_an.h"
-#include <math.h>
+#include "sensors.h"
 
 // Si usas ArduinoFFT, incluye la librería:
 #include <arduinoFFT.h>
 
-#define FFT_BUFFER_SIZE 256
-#define SAMPLING_FREQUENCY 160.0  // Ajusta según tu frecuencia real de muestreo
+AnalysisResults_t analysisResults;
 
-float magnitudBuffer[FFT_BUFFER_SIZE];
-int bufferIndex = 0;
+// --- Parámetros de Tiempo ---
+// Para un muestreo a ~6ms (166 Hz), ~166 muestras por segundo.
+const int SAMPLES_PER_SECOND = 166; 
+
+// Período para calcular el RMS (Ej: 1 segundo)
+const int RMS_PERIOD_SECONDS = 1;
+const int RMS_SAMPLES_COUNT = SAMPLES_PER_SECOND * RMS_PERIOD_SECONDS; 
+
+// Período de Promedio (6 minutos)
+const int AVG_PERIOD_SECONDS = 6 * 60;
+const int AVG_SAMPLES_COUNT = SAMPLES_PER_SECOND * AVG_PERIOD_SECONDS;
 
 
-
-ArduinoFFT<double> FFT = ArduinoFFT<double>();
+// ArduinoFFT<double> FFT = ArduinoFFT<double>();
 
 void TaskData(void *pvParameters) {
     Vector3 campo;
-    double vReal[FFT_BUFFER_SIZE];
-    double vImag[FFT_BUFFER_SIZE];
+    // Variables de Acumulación para el RMS
+    float sum_sq_x = 0.0;
+    float sum_sq_y = 0.0;
+    float sum_sq_z = 0.0;
+    int rms_sample_counter = 0;
+
+    // Variables de Acumulación para el Promedio de 6 minutos
+    float sum_avg_x = 0.0;
+    float sum_avg_y = 0.0;
+    float sum_avg_z = 0.0;
+    int avg_sample_counter = 0;
 
     for (;;) {
         // Espera datos de la cola
         if (xQueueReceive(analysis_queue, &campo, portMAX_DELAY) == pdPASS) {
-            // Calcula la magnitud            
-            float magnitud = sqrt(campo.x * campo.x + campo.y * campo.y + campo.z * campo.z);
+            // --- 1. Cálculo del RMS (Se ejecuta con cada muestra) ---
+            // Acumular el cuadrado de los valores para el cálculo RMS
+            sum_sq_x += campo.x * campo.x;
+            sum_sq_y += campo.y * campo.y;
+            sum_sq_z += campo.z * campo.z;
+            rms_sample_counter++;
+            
+            // --- 2. Acumulación para el Promedio de 6 min ---
+            sum_avg_x += campo.x;
+            sum_avg_y += campo.y;
+            sum_avg_z += campo.z;
+            avg_sample_counter++;
 
-            // Guarda en el buffer circular
-            magnitudBuffer[bufferIndex] = magnitud;
-            bufferIndex++;
-
-            // Cuando el buffer esté lleno, realiza la FFT
-            if (bufferIndex >= FFT_BUFFER_SIZE) {
-                // Copia los datos al arreglo de la FFT
-                for (int i = 0; i < FFT_BUFFER_SIZE; i++) {
-                    vReal[i] = magnitudBuffer[i];
-                    vImag[i] = 0.0;
+            // --- 3. Finalización del Período RMS (Ej: cada 1 segundo) ---
+            if (rms_sample_counter >= RMS_SAMPLES_COUNT) {
+                    
+                // Calcular el RMS (Root Mean Square) actual
+                analysisResults.vrms_actual.x = sqrt(sum_sq_x / rms_sample_counter);
+                analysisResults.vrms_actual.y = sqrt(sum_sq_y / rms_sample_counter);
+                analysisResults.vrms_actual.z = sqrt(sum_sq_z / rms_sample_counter);
+                
+                // --- Determinar el RMS Máximo ---
+                if (analysisResults.vrms_actual.x > analysisResults.vrms_max.x) {
+                    analysisResults.vrms_max.x = analysisResults.vrms_actual.x;
+                }
+                if (analysisResults.vrms_actual.y > analysisResults.vrms_max.y) {
+                    analysisResults.vrms_max.y = analysisResults.vrms_actual.y;
+                }
+                if (analysisResults.vrms_actual.z > analysisResults.vrms_max.z) {
+                    analysisResults.vrms_max.z = analysisResults.vrms_actual.z;
                 }
 
-                FFT.windowing(vReal, FFT_BUFFER_SIZE, FFT_WIN_TYP_HAMMING, FFT_FORWARD);
-                FFT.compute(vReal, vImag, FFT_BUFFER_SIZE, FFT_FORWARD);
-                FFT.complexToMagnitude(vReal, vImag, FFT_BUFFER_SIZE);
+                // Reiniciar los acumuladores del RMS
+                sum_sq_x = 0.0;
+                sum_sq_y = 0.0;
+                sum_sq_z = 0.0;
+                rms_sample_counter = 0;
+                Serial.printf("RMS Actual: X=%.3f, Y=%.3f, Z=%.3f | RMS Máx: X=%.3f, Y=%.3f, Z=%.3f\n", 
+                              analysisResults.vrms_actual.x, 
+                              analysisResults.vrms_actual.y, 
+                              analysisResults.vrms_actual.z,
+                              analysisResults.vrms_max.x, 
+                              analysisResults.vrms_max.y, 
+                              analysisResults.vrms_max.z);
+            }
+        // --- 4. Finalización del Período de Promedio (cada 6 minutos) ---
+            if (avg_sample_counter >= AVG_SAMPLES_COUNT) {
+                
+                // Calcular el Promedio (Suma / Cantidad)
+                analysisResults.avg_6min.x = sum_avg_x / avg_sample_counter;
+                analysisResults.avg_6min.y = sum_avg_y / avg_sample_counter;
+                analysisResults.avg_6min.z = sum_avg_z / avg_sample_counter;
+                
+                Serial.printf("Nuevo Promedio de 6 min: X=%.3f, Y=%.3f, Z=%.3f\n", 
+                              analysisResults.avg_6min.x, 
+                              analysisResults.avg_6min.y, 
+                              analysisResults.avg_6min.z);
 
-                // Busca la frecuencia dominante
-                double maxAmp = 0.0;
-                int maxIndex = 0;
-                for (int i = 1; i < FFT_BUFFER_SIZE / 2; i++) { // Ignora DC (i=0)
-                    if (vReal[i] > maxAmp) {
-                        maxAmp = vReal[i];
-                        maxIndex = i;
-                    }
-                }
-                double dominantFreq = (maxIndex * SAMPLING_FREQUENCY) / FFT_BUFFER_SIZE;
-
-                Serial.print("Frecuencia dominante: ");
-                Serial.print(dominantFreq, 2);
-                Serial.print(" Hz, Amplitud: ");
-                Serial.println(maxAmp, 2);
-
-                bufferIndex = 0; // Reinicia el buffer
+                // Reiniciar los acumuladores del Promedio
+                sum_avg_x = 0.0;
+                sum_avg_y = 0.0;
+                sum_avg_z = 0.0;
+                avg_sample_counter = 0;
             }
         }
     }
