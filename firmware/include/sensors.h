@@ -8,7 +8,9 @@ typedef struct {
 } Vector3;
 
 // Cola global para enviar los datos del sensor
-extern QueueHandle_t sensorQueue;
+extern QueueHandle_t display_queue;
+extern QueueHandle_t analysis_queue;
+extern QueueHandle_t wifi_queue;
 
 // Prototipos de funciones
 void initSensor();

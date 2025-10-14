@@ -11,12 +11,16 @@
 Adafruit_MLX90393 mlx = Adafruit_MLX90393();
 
 // --- Calibración simple (offsets) ---
+// Falta mejorar con calibración completa
 float offsetX = 0.0;  
 float offsetY = 0.0;
 float offsetZ = 0.0;
 
-// --- Cola global para enviar los datos ---
-QueueHandle_t sensorQueue;
+
+// --- Colas globales para cada tarea consumidora ---
+QueueHandle_t display_queue;
+QueueHandle_t analysis_queue;
+QueueHandle_t wifi_queue;
 
 // Inicializa el sensor MLX90393 con configuración óptima
 void initSensor() {
@@ -32,12 +36,15 @@ void initSensor() {
   mlx.setResolution(MLX90393_X, MLX90393_RES_16);  // Máxima resolución (~0.15 µT/LSB en alta ganancia)
   mlx.setResolution(MLX90393_Y, MLX90393_RES_16);  // Máxima resolución (~0.15 µT/LSB en alta ganancia)
   mlx.setResolution(MLX90393_Z, MLX90393_RES_16);  // Máxima resolución (~0.15 µT/LSB en alta ganancia)
-  mlx.setOversampling(MLX90393_OSR_1); // Máximo sobremuestreo (reduce ruido, aumenta tiempo)
+  mlx.setOversampling(MLX90393_OSR_0); // Máximo sobremuestreo (reduce ruido, aumenta tiempo)
   mlx.setFilter(MLX90393_FILTER_1);    // Máximo filtro (reduce ruido, ODR ~5 Hz)
 
-  sensorQueue = xQueueCreate(10, sizeof(Vector3));
-  if (sensorQueue == NULL) {
-    Serial.println("Error creando la cola.");
+  // --- Creación de las Colas Individuales ---
+  display_queue = xQueueCreate(1, sizeof(Vector3));
+  analysis_queue = xQueueCreate(10, sizeof(Vector3));
+  wifi_queue = xQueueCreate(10, sizeof(Vector3));
+  if (display_queue == NULL || analysis_queue == NULL || wifi_queue == NULL) {
+    Serial.println("Error creando colas de sensores");
     while (1);
   }
 }
@@ -65,14 +72,41 @@ Vector3 getMagneticField() {
 // ---------------------------------------------------------
 void TaskSensor(void *pvParameters) {
   Vector3 campo;
+  unsigned long lastSampleTime = micros();
+  unsigned long currentSampleTime;
+  unsigned long deltaTime;
+  unsigned long sumDeltaTime = 0;
+  int sampleCount = 0;
 
   for (;;) {
     campo = getMagneticField();
 
     // Envía los datos a la cola (no bloqueante)
-    xQueueSend(sensorQueue, &campo, 0);
+    // if (xQueueSend(display_queue, &campo, 0) != pdPASS ||
+    //     xQueueSend(analysis_queue, &campo, 0) != pdPASS ||
+    //     xQueueSend(wifi_queue, &campo, 0) != pdPASS) {
+    //   Serial.println("Warning: colas llenas, datos perdidos.");
+    // }
+    xQueueOverwrite(display_queue, &campo);
 
-    // Tiempo de muestreo (ajústalo según tu frecuencia deseada)
-    vTaskDelay(pdMS_TO_TICKS(5));  // 5 ms → 200 Hz
+    // Calcular tiempo entre muestras
+    currentSampleTime = micros();
+    deltaTime = currentSampleTime - lastSampleTime;
+    lastSampleTime = currentSampleTime;
+    sumDeltaTime += deltaTime;
+    sampleCount++;
+
+    // Cada 256 muestras, imprime el tiempo promedio entre muestras
+    if (sampleCount >= 256) {
+      float avgDeltaMs = sumDeltaTime / 256.0 / 1000.0; // en ms
+      Serial.print("Tiempo promedio entre muestras: ");
+      Serial.print(avgDeltaMs, 3);
+      Serial.println(" ms");
+      Serial.print("Frecuencia de muestreo: ");
+      Serial.print(1.0/avgDeltaMs * 1000.0, 3);
+      Serial.println(" Hz");
+      sumDeltaTime = 0;
+      sampleCount = 0;
+    }
   }
 }

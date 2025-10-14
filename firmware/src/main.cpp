@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include "sensors.h"
 #include "display.h"
-#include "fft.h"
+#include "data_an.h"
 
 
 void setup() {
@@ -10,8 +10,8 @@ void setup() {
   initDisplay();
 
   xTaskCreatePinnedToCore(TaskSensor, "Sensor", 4096, NULL, 3, NULL, 0);
-  xTaskCreatePinnedToCore(TaskFFT, "FFT", 4096, NULL, 2, NULL, 0);
-  xTaskCreatePinnedToCore(TaskDisplay, "Display", 4096, NULL, 1, NULL, 1);
+  xTaskCreatePinnedToCore(TaskData, "Data", 4096, NULL, 2, NULL, 0);
+  xTaskCreatePinnedToCore(TaskDisplay, "Display", 4096, NULL, 1, NULL, 0);
 }
 
 void loop() {
