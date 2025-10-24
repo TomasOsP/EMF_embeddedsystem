@@ -1,28 +1,22 @@
-# Sistema de Monitoreo Magnético con MLX90393
+# Magnetic Monitoring System with MLX90393
 
-Sistema completo para monitorear y visualizar campos magnéticos usando el sensor MLX90393 con ESP32.
+A complete system for monitoring and visualizing magnetic fields using the MLX90393 sensor with ESP32.
 
-## Estructura del Proyecto
+## Project Structure
 mlx90393-magnetic-sensor/
-├── arduino/ # Código para ESP32
-├── python-visualization/ # Visualización en Python
-└── docs/ # Documentación
+├── firmware/ # Code for ESP32
+├── python/ # Python Visualization
+└── docs/ # Documentation
 
 ## Hardware Requerido
 
 - ESP32
-- Sensor MLX90393
-- Cables de conexión
+- MLX90393 Sensor
+- Connection Wires
 
 ## Instalación
 
 ### Arduino (ESP32)
-1. Abrir `arduino/main.cpp` en Arduino IDE
-2. Instalar librería Adafruit MLX90393
-3. Subir a la ESP32
-
-### Python Visualization
-```bash
-cd python-visualization
-pip install -r requirements.txt
-python magnetic_visualizer.py
+1. Open arduino/main.cpp in the Arduino IDE 
+2. Install the Adafruit MLX90393 library
+3. Upload to the ESP32
