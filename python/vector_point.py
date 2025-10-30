@@ -5,7 +5,7 @@ from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.animation import FuncAnimation
 
 # === CONFIGURACIÓN SERIAL ===
-PORT = '/dev/tty.usbserial-11340'  # ⚠️ cambia por tu puerto (ej. COM3 o /dev/ttyUSB0)
+PORT = '/dev/tty.usbserial-1340'  # ⚠️ cambia por tu puerto (ej. COM3 o /dev/ttyUSB0)
 BAUD = 115200
 TIMEOUT = 1.0
 

@@ -5,7 +5,7 @@ from collections import deque
 from matplotlib.animation import FuncAnimation
 
 # === CONFIGURACIÓN SERIAL ===
-PORT = '/dev/tty.usbserial-11340'   # ⚠️ cambia según tu puerto
+PORT = '/dev/tty.usbserial-1340'   # ⚠️ cambia según tu puerto
 BAUD = 115200
 TIMEOUT = 1.0
 
