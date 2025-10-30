@@ -1,117 +1,118 @@
 import serial
 import time
-import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
 from collections import deque
-import re
+from matplotlib.animation import FuncAnimation
+import numpy as np
 
-# Configuración del puerto serial (ajusta el puerto según tu sistema, e.g., 'COM3' en Windows o '/dev/ttyUSB0' en Linux/Mac)
-PORT = '/dev/tty.usbserial-10'  # Cambia esto por el puerto de tu ESP32
-BAUDRATE = 115200
-MAX_POINTS = 500  # Número máximo de puntos en la gráfica
+# === CONFIGURACIÓN SERIAL ===
+PORT = '/dev/tty.usbserial-11340'  # ⚠️ cambia según tu puerto
+BAUD = 115200
+TIMEOUT = 1.0
 
-# Inicializar colas para datos
-times = deque(maxlen=MAX_POINTS)
-x_values = deque(maxlen=MAX_POINTS)
-y_values = deque(maxlen=MAX_POINTS)
-z_values = deque(maxlen=MAX_POINTS)
-magnitudes = deque(maxlen=MAX_POINTS)
+# === PARÁMETROS DE GRAFICACIÓN ===
+BUFFER_SIZE = 500      # cantidad de muestras visibles
+UPDATE_INTERVAL = 50   # ms entre actualizaciones
 
-# Configurar la figura y el eje
-fig, ax = plt.subplots(figsize=(10, 6))
-ax.set_title('Flujo Magnético en función del Tiempo (desde ESP32)')
-ax.set_xlabel('Tiempo (s)')
-ax.set_ylabel('Flujo Magnético (µT)')
+# === CONEXIÓN SERIAL ===
+ser = serial.Serial(PORT, BAUD, timeout=TIMEOUT)
+print(f"Conectado a {PORT} a {BAUD} baudios")
+
+# === BUFFERS CIRCULARES ===
+timestamps = deque(maxlen=BUFFER_SIZE)
+x_data = deque(maxlen=BUFFER_SIZE)
+y_data = deque(maxlen=BUFFER_SIZE)
+z_data = deque(maxlen=BUFFER_SIZE)
+b_data = deque(maxlen=BUFFER_SIZE)  # módulo del campo
+
+# === VARIABLES DE FRECUENCIA DE MUESTREO ===
+last_timestamp = None
+intervals = deque(maxlen=200)
+
+# === CONFIGURACIÓN DEL PLOT ===
+plt.style.use('dark_background')
+fig, ax = plt.subplots(figsize=(9, 5))
+
+line_x, = ax.plot([], [], 'r-', label='X (µT)')
+line_y, = ax.plot([], [], 'g-', label='Y (µT)')
+line_z, = ax.plot([], [], 'b-', label='Z (µT)')
+line_b, = ax.plot([], [], 'w--', linewidth=2, label='|B| (µT)')
+
+text_freq = ax.text(0.02, 0.95, '', transform=ax.transAxes, color='white', fontsize=10)
+
+ax.set_title("Magnetic Field (µT) - Real Time")
+ax.set_xlabel("Samples")
+ax.set_ylabel("Magnetic Field (µT)")
+ax.legend(loc="upper right")
 ax.grid(True)
 
-# Líneas para cada componente
-line_x, = ax.plot([], [], 'r-', label='X', alpha=0.8)
-line_y, = ax.plot([], [], 'g-', label='Y', alpha=0.8)
-line_z, = ax.plot([], [], 'b-', label='Z', alpha=0.8)
-line_mag, = ax.plot([], [], 'k-', label='Magnitud', linewidth=2)
-ax.legend()
-
-# Texto para mostrar los datos actuales (en la esquina superior izquierda)
-current_text = ax.text(0.05, 0.95, 'Current:\nX: N/A\nY: N/A\nZ: N/A\nMag: N/A', 
-                       transform=ax.transAxes, va='top', bbox=dict(facecolor='white', alpha=0.5))
-
-# Límites iniciales
-ax.set_xlim(0, 60)
-ax.set_ylim(-200, 200)
-
-# Tiempo inicial
-start_time = time.time()
-
-# Función para parsear los datos de la línea serial (basado en el formato de main.cpp)
-def parse_data(line):
+# === FUNCIÓN DE LECTURA SERIAL ===
+def read_serial_line():
+    global last_timestamp
     try:
-        # Buscar patrones en la línea (formato: "X: valor µT\tY: valor µT\tZ: valor µT\t" y "Magnitud: valor µT\t")
-        x_match = re.search(r'X: ([-+]?\d*\.\d+|\d+) µT', line)
-        y_match = re.search(r'Y: ([-+]?\d*\.\d+|\d+) µT', line)
-        z_match = re.search(r'Z: ([-+]?\d*\.\d+|\d+) µT', line)
-        mag_match = re.search(r'Magnitud: ([-+]?\d*\.\d+|\d+) µT', line)
-        
-        if x_match and y_match and z_match:
-            x = float(x_match.group(1))
-            y = float(y_match.group(1))
-            z = float(z_match.group(1))
-            magnitude = float(mag_match.group(1)) if mag_match else np.sqrt(x**2 + y**2 + z**2)
-            return x, y, z, magnitude
-    except Exception as e:
-        print(f"Error parsing data: {e}")
-    return None, None, None, None
+        line = ser.readline().decode('ascii', errors='ignore').strip()
+        if not line:
+            return None
+        parts = line.split(',')
+        if len(parts) >= 4:
+            ts = int(parts[0])
+            x = float(parts[1])
+            y = float(parts[2])
+            z = float(parts[3])
 
-# Abrir conexión serial
-ser = serial.Serial(PORT, BAUDRATE, timeout=1)
+            # Calcula módulo
+            b = (x**2 + y**2 + z**2) ** 0.5
 
-# Función de actualización para la animación
+            # Calcula delta tiempo (para frecuencia)
+            if last_timestamp is not None:
+                dt = (ts - last_timestamp) / 1e6  # µs -> s
+                if dt > 0:
+                    intervals.append(dt)
+            last_timestamp = ts
+
+            return ts, x, y, z, b
+    except Exception:
+        return None
+    return None
+
+# === FUNCIÓN DE ACTUALIZACIÓN ===
 def update(frame):
-    try:
-        if ser.in_waiting > 0:
-            line = ser.readline().decode('utf-8', errors='ignore').strip()
-            if 'X:' in line and 'Y:' in line and 'Z:' in line:
-                x, y, z, magnitude = parse_data(line)
-                if x is not None:
-                    current_time = time.time() - start_time
-                    times.append(current_time)
-                    x_values.append(x)
-                    y_values.append(y)
-                    z_values.append(z)
-                    magnitudes.append(magnitude)
-                    
-                    # Actualizar líneas
-                    line_x.set_data(times, x_values)
-                    line_y.set_data(times, y_values)
-                    line_z.set_data(times, z_values)
-                    line_mag.set_data(times, magnitudes)
-                    
-                    # Actualizar texto con datos actuales
-                    current_text.set_text(f"Current:\nX: {x:.2f} µT\nY: {y:.2f} µT\nZ: {z:.2f} µT\nMag: {magnitude:.2f} µT")
-                    
-                    # Ajustar límites X si es necesario
-                    if current_time > ax.get_xlim()[1]:
-                        ax.set_xlim(0, current_time + 10)
-                    
-                    # Ajustar límites Y si es necesario
-                    current_max = max(max(x_values), max(y_values), max(z_values), max(magnitudes))
-                    current_min = min(min(x_values), min(y_values), min(z_values), min(magnitudes))
-                    if current_max > ax.get_ylim()[1] or current_min < ax.get_ylim()[0]:
-                        margin = 20
-                        ax.set_ylim(current_min - margin, current_max + margin)
-                    
-                    fig.canvas.draw()
-    except Exception as e:
-        print(f"Serial error: {e}")
-    
-    return line_x, line_y, line_z, line_mag, current_text
+    data = read_serial_line()
+    if data is not None:
+        ts, x, y, z, b = data
+        timestamps.append(ts)
+        x_data.append(x)
+        y_data.append(y)
+        z_data.append(z)
+        b_data.append(b)
 
-# Crear animación
-ani = FuncAnimation(fig, update, interval=100, blit=True)
+        # Actualizar datos de líneas
+        line_x.set_data(range(len(x_data)), x_data)
+        line_y.set_data(range(len(y_data)), y_data)
+        line_z.set_data(range(len(z_data)), z_data)
+        line_b.set_data(range(len(b_data)), b_data)
 
-# Mostrar la gráfica
-plt.tight_layout()
-plt.show()
+        ax.set_xlim(0, BUFFER_SIZE)
+        ymin = min(min(x_data, default=0), min(y_data, default=0), min(z_data, default=0))
+        ymax = max(max(x_data, default=0), max(y_data, default=0), max(z_data, default=0))
+        ax.set_ylim(ymin - 5, ymax + 5)
 
-# Cerrar serial al finalizar
-ser.close()
+        # Frecuencia de muestreo promedio
+        if len(intervals) > 5:
+            avg_freq = 1.0 / np.mean(intervals)
+            text_freq.set_text(f"Sampling rate: {avg_freq:.1f} Hz")
+        else:
+            text_freq.set_text("Sampling rate: -- Hz")
+
+    return line_x, line_y, line_z, line_b, text_freq
+
+# === INICIAR ANIMACIÓN ===
+ani = FuncAnimation(fig, update, interval=UPDATE_INTERVAL, blit=False)
+
+try:
+    plt.show()
+except KeyboardInterrupt:
+    print("\nInterrumpido por el usuario.")
+finally:
+    ser.close()
+    print("Puerto cerrado.")

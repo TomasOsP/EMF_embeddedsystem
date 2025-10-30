@@ -11,6 +11,7 @@ typedef struct {
 extern QueueHandle_t display_queue;
 extern QueueHandle_t analysis_queue;
 extern QueueHandle_t wifi_queue;
+extern SemaphoreHandle_t serialMux;
 
 // Prototipos de funciones
 void initSensor();

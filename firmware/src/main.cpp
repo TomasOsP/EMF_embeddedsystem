@@ -8,6 +8,7 @@
 
 // Semaforo para notiicar el cambio de pantalla
 SemaphoreHandle_t buttonSemaphore;
+SemaphoreHandle_t serialMux;
 
 // Función de la interrupcion
 void IRAM_ATTR buttonISR() {
@@ -23,6 +24,16 @@ void setup() {
   Serial.begin(115200);
   initSensor();
   initDisplay();
+
+  // Crear mutex para proteger Serial
+  serialMux = xSemaphoreCreateMutex();
+  if (serialMux == NULL) {
+    Serial.println("No se pudo crear mutex serial!");
+    while (1) delay(1000);
+  }
+
+  // Hacemos disponible el mutex global a sensors.cpp
+  ::serialMux = serialMux;
 
   // --- Inicializacion del Semáforo y el Botón ---
   buttonSemaphore = xSemaphoreCreateBinary();
